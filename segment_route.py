@@ -124,11 +124,12 @@ class SegmentRouter:
                 if host2!= host:
                     path = self.route_node(host.name, host2.name)[1:]
                     encap = f"ip -6 route add {entry_finder(name=host2.name, entries=self.pyhosts.entries)[0].address[:-1]}/64 encap seg6 mode encap segs {','.join([entry_finder(name=item, entries=self.pyhosts.entries)[0].address for item in path[:-1]])[:-1]}100 dev {host.name}-{path[0]}" if len(path) > 1 else ""
-                    decap = f"ip -6 route add {entry_finder(name=path[0], entries=self.pyhosts.entries)[0].address[:-1]}100 encap seg6local action End.DT6 table 254 dev {host.name}-{path[0]}"
+                    #decap = f"ip -6 route add {entry_finder(name=path[0], entries=self.pyhosts.entries)[0].address[:-1]}100 encap seg6local action End.DT6 dev {path[1]}-{path[0]} table default"
+
                     with open(SRLOGFILE, "a") as f:
                         f.write(f"\nRouting from {host.name} to {host2.name} via {path}\n")
                         f.write(f"Segment Encap Command: {encap}\n")
-                        f.write(f"Segment Decap Command: {decap}\n")
+                        #f.write(f"Segment Decap Command: {decap}\n")
                     print(host.intfs, file=open("srLog.txt", "a"))
                     host.cmd(encap)
-                    host2.cmd(decap)
+                    #host2.cmd(decap)

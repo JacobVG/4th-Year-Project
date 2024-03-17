@@ -21,7 +21,7 @@ class TestSuite:
             for host2 in self.net.hosts:
                 if host2!= host and "r" not in host.name and "r" not in host2.name:
                     print(f"{host.name} pinging {host2.name}")
-                    
+
                     print(host.cmd(f"ping6 -c 1 -v {entry_finder(name=host2.name, entries=self.pyhosts.entries)[0].address}"))
 
     def code_brain(self):
@@ -32,13 +32,16 @@ class TestSuite:
         print(node.cmd("ifconfig -a"))
         print("*Route*")
         print(node.cmd("ip -6 route show"))
+        print(node.cmd("ip -6 neigh show"))
         print("**r5**")
         print(router.cmd("ifconfig -a"))
-        #print("*Route*")
-        #print(router.cmd("ip -6 route show"))
-        #print(router.cmd("systemctl status firewalld"))
-        #print(router.cmd("systemctl status zebra"))
-        #print(router.cmd("systemctl status isisd"))
+        print(router.cmd("ip -6 neigh show"))
+        print(router.cmd('vtysh -c "sh isis neighbor"'))
+        # print("*Route*")
+        # print(router.cmd("ip -6 route show"))
+        # print(router.cmd("systemctl status firewalld"))
+        # print(router.cmd("systemctl status zebra"))
+        # print(router.cmd("systemctl status isisd"))
         print("pinging h14 from r5")
         print(node.cmd(f"ping6 -c 1 -v fcff:5::1"))
         print("Tracing")

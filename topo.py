@@ -112,7 +112,7 @@ class CustomTopo:
                     starter.write(f"GW_NAME={connected_name}\n")
                     starter.write(f"IF_NAME={node}-{connected_name}\n")
                     starter.write(f"IP_ADDR={curr_entry.address}/64\n")
-                    starter.write(f"GW_ADDR={entry_finder(name=connected_name, entries=hosts.entries)[0].address}\n\n")
+                    starter.write(f"GW_ADDR={curr_entry.address[:-1]}1\n\n")
                     for line in node_start_lines:
                         starter.write(line)
             elif "r" in node:
@@ -120,22 +120,30 @@ class CustomTopo:
                     isisd.write(f"hostname {node}\n")
                     isisd.write("password zebra\n")
                     isisd.write(f"log file {node_path}/isisd.log\n")
+                    isisd.write("!\n")
+                    isisd.write("!\n")
+                    isisd.write("interface eth0\n")
+                    isisd.write(" ipv6 router isis 1\n")
+                    isisd.write(" ip router isis 1\n")
+                    isisd.write(" isis hello-interval 5\n")
+                    counter = 1
                     for edge in self.G.edges(node):
+                        counter = counter + 1
                         ifconnect = edge[0] if edge[1] == node else edge[1]
 
                         isisd.write("!\n")
                         isisd.write(f"interface {node}-{ifconnect}\n")
-                        isisd.write(" ipv6 router isis FOO\n")
-                        isisd.write(" ip router isis FOO\n")
+                        isisd.write(f" ipv6 router isis {counter}\n")
+                        isisd.write(f" ip router isis {counter}\n")
                         isisd.write(" isis hello-interval 5\n")
-
+                    counter = counter + 1
                     isisd.write("!\n")
                     isisd.write("interface lo\n")
-                    isisd.write(" ipv6 router isis FOO\n")
-                    isisd.write(" ip router isis FOO\n")
+                    isisd.write(f" ipv6 router isis {counter}\n")
+                    isisd.write(f" ip router isis {counter}\n")
                     isisd.write(" isis hello-interval 5\n")
                     isisd.write("!\n")
-                    isisd.write("router isis FOO\n")
+                    isisd.write(f"router isis {counter+1}\n")
                     isisd.write(f" net 49.0001.1111.1111.{node[1:].zfill(4)}.00\n")
                     isisd.write(" is-type level-2-only\n")
                     isisd.write(" metric-style wide\n")
@@ -154,7 +162,14 @@ class CustomTopo:
                         ifconnect = edge[0] if edge[1] == node else edge[1]
                         zebra.write("!\n")
                         zebra.write(f"interface {node}-{ifconnect}\n")
-                        zebra.write(f" ipv6 address {entry_finder(name=ifconnect, entries=hosts.entries)[0].address}/64\n")
+                        if "r" in ifconnect and "r" in node:
+                            if int(node[1:]) > int(ifconnect[1:]):
+                                addyr = f"{ifconnect[1:]}:{node[1:]}::2"
+                            else:
+                                addyr = f"{node[1:]}:{ifconnect[1:]}::1"
+                            zebra.write(f" ipv6 address fcf0:0:{addyr}/64\n")
+                        else:
+                            zebra.write(f" ipv6 address {entry_finder(name=ifconnect, entries=hosts.entries)[0].address[:-1]}1/64\n")
                     zebra.write("!\n")
                     zebra.write("interface lo\n")
                     zebra.write(f" ipv6 address {curr_entry.address}/32\n")

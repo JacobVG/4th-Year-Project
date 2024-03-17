@@ -1,6 +1,6 @@
 import networkx as nx
 
-import os, shutil, json
+import os, shutil, json, sys
 from argparse import ArgumentParser
 from topo import CustomTopo, BASEDIR
 
@@ -47,8 +47,10 @@ class BaseNode(Host):
         Host.config(self, **kwargs)
 
         for intf in self.intfs.values():
+            self.cmd(f"ifconfig {intf.name} down")
             self.cmd(f"ifconfig {intf.name} 0")
-
+            self.cmd(f"ifconfig {intf.name} up")
+        
         self.cmd(f"echo '{self.name}' > {PRIVDIR}/hostname")
         if os.path.isfile(f"{BASEDIR}{self.name}/start.sh"):
             print("Initializing")
@@ -81,6 +83,10 @@ class Router(BaseNode):
     def __init__(self, name, *args, **kwargs):
         BaseNode.__init__(self, name, *args, **kwargs)
 
+    def config(self, **kwargs):
+        # Init steps
+        BaseNode.config(self, **kwargs)
+
 
 def add_link(my_net, node1, node2):
     my_net.addLink(
@@ -95,12 +101,14 @@ def create_topo(my_net, args):
     topo = CustomTopo(args.topo, args.size)
     topo.create_hosts()
     graph = topo.get_topo()
-
+    
+    for n in graph.nodes:
+        if n[0] == "h":
+            my_net.addHost(f"{n}", cls=BaseNode)
     for n in graph.nodes:
         if n[0] == "r":
             my_net.addHost(f"{n}", cls=Router)
-        elif n[0] == "h":
-            my_net.addHost(f"{n}", cls=BaseNode)
+        
     for n1, n2 in graph.edges:
         add_link(my_net, f"{n1}", f"{n2}")
 
@@ -147,7 +155,7 @@ def run_tester(net):
 
 def run_mn(args):
     "Runs mininet"
-    net = Mininet(topo=None, build=False, controller=None, autoSetMacs=False)
+    net = Mininet(topo=None, build=False, controller=None, autoSetMacs=True)
     create_topo(net, args)
 
     net.build()
@@ -161,7 +169,7 @@ def run_mn(args):
 
     if ADD_ETC_HOSTS:
         add_nodes_to_etc_hosts()
-
+    net.getNodeByName("r5").cmd("ip -6 route")
     metric_checker = Process(target=check_metrics, args=(net,))
     cli_runner = Process(target=run_tester, args=(net,))
     metric_checker.start()
@@ -178,8 +186,7 @@ def run_mn(args):
 
 def parse_arguments():
     parser = ArgumentParser(
-        description="Emulation of a Mininet topology (8 routers running "
-        "IS-IS, 1 controller out-of-band"
+        description="Emulation of a Mininet topology for Segment Routing"
     )
     parser.add_argument(
         "--no-etc-hosts",
@@ -213,7 +220,7 @@ def __main():
     global ADD_ETC_HOSTS
     args = parse_arguments()
     ADD_ETC_HOSTS = args.add_etc_hosts
-    setLogLevel("info")
+    setLogLevel("debug")
     run_mn(args)
 
 
