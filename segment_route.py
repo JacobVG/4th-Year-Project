@@ -17,11 +17,33 @@ USAGE_LIMIT = 70
 SRLOGFILE = "srLog.txt"
 
 class MetricCollector:
+    """
+    This class is used to collect metrics from the hosts in the network.
+
+    Args:
+        net (Mininet): The Mininet network object.
+
+    Attributes:
+        net (Mininet): The Mininet network object.
+        metrics (dict): A dictionary that stores the metrics collected from the hosts. The keys are the host names and the values are dictionaries that contain the memory and CPU usage of the host.
+    """
     def __init__(self, net):
+        """
+        Initialize the MetricCollector class.
+        """
         self.net = net
         self.metrics = {host.name: {} for host in self.net.hosts}
 
     def collect_usage(self, host):
+        """
+        Collect the memory and CPU usage of a host.
+
+        Args:
+            host (Host): The host object.
+
+        Returns:
+            tuple: A tuple containing the memory and CPU usage of the host.
+        """
         metrics = host.popen(
             ["python", "collect_usage.py"],
             stderr=PIPE,
@@ -36,6 +58,9 @@ class MetricCollector:
         return mem_usage, cpu_usage
 
     def collect_all_usage(self):
+        """
+        Collect the metrics from all the hosts in the network.
+        """
         for host in self.net.hosts:
             (
                 self.metrics[host.name]["memory_usage"],
@@ -44,16 +69,33 @@ class MetricCollector:
 
 
 class SegmentRouter:
-    def __init__(self, net):
+    """
+    This class is used to route packets through a Segment Routing network.
+    It uses the Dijkstra shortest path algorithm to find the best path between two hosts.
+    It also updates the routing table on each host with the new Segment Routing entries.
+    """
+    def __init__(self, net, metrics_brain):
+        """
+        Initialize the SegmentRouter class.
+
+        Args:
+            net (Mininet): The Mininet network object.
+        """
         self.net = net
         topo = CustomTopo(from_net=True)
         topo.create_from_net(net)
         self.G = topo.get_topo()
         self.pyhosts = Hosts()
         self.pyhosts.import_file(ETC_HOSTS_FILE)
-        self.metrics_brain = MetricCollector(net)
+        self.metrics_brain = metrics_brain
 
     def consolidate_edges(self):
+        """
+        This function is used to consolidate the edges of the network into a dictionary where the keys are the nodes and the values are a list of the adjacent nodes.
+
+        Returns:
+            dict: A dictionary where the keys are the nodes and the values are a list of the adjacent nodes.
+        """
         edges = {node: [] for node in self.G.nodes}
         for edge in self.G.edges:
             edges[edge[0]].append(edge[1])
@@ -61,6 +103,11 @@ class SegmentRouter:
         return edges
 
     def find_weight(self):
+        """
+        This function is used to update the edge weights of the network based on the metrics collected from the hosts.
+        The edge weights are used to determine the feasibility of using a specific edge for Segment Routing.
+        If an edge is not feasible, the function assigns a weight of 0 to the edge, and assigns a higher weight to the edges that are feasible.
+        """
         weighted_edges = {}
         edges = self.consolidate_edges()
         for edge in edges:
@@ -103,15 +150,34 @@ class SegmentRouter:
         nx.set_edge_attributes(self.G, weighted_edges)
 
     def route_node(self, start_node, end_node):
+        """
+        This function is used to find the shortest path between two nodes in the network.
+
+        Parameters:
+        start_node (str): The starting node of the path.
+        end_node (str): The ending node of the path.
+
+        Returns:
+        List[str]: The list of nodes that make up the shortest path between the two nodes.
+        """
         path = nx.shortest_path(
             self.G, start_node, end_node, weight="weight", method="dijkstra"
         )
         return path
 
+    def check_weighted(self, host1):
+        """
+            This function is used to check if the edge weights have been updated.
+            If not, it updates the edge weights using the metrics collected from the hosts.
+            """
+        if not self.metrics_brain.metrics[host1.name]:
+            self.metrics_brain.collect_all_usage()
+            self.find_weight()
+
     def route_all(self):
         """
         This function is used to route all the packets through the Segment Routing network.
-        It uses the shortest path algorithm to find the best path between two hosts.
+        It uses the Dijkstra shortest path algorithm to find the best path between two hosts.
         It also updates the routing table on each host with the new Segment Routing entries.
         """
         print("Collecting Metrics...")
@@ -121,15 +187,48 @@ class SegmentRouter:
         self.find_weight()
         for host in self.net.hosts:
             for host2 in self.net.hosts:
-                if host2!= host:
-                    path = self.route_node(host.name, host2.name)[1:]
-                    encap = f"ip -6 route add {entry_finder(name=host2.name, entries=self.pyhosts.entries)[0].address[:-1]}/64 encap seg6 mode encap segs {','.join([entry_finder(name=item, entries=self.pyhosts.entries)[0].address for item in path[:-1]])[:-1]}100 dev {host.name}-{path[0]}" if len(path) > 1 else ""
-                    #decap = f"ip -6 route add {entry_finder(name=path[0], entries=self.pyhosts.entries)[0].address[:-1]}100 encap seg6local action End.DT6 dev {path[1]}-{path[0]} table default"
+                if host2!= host and "r" not in host.name and "r" not in host2.name:
+                    path = self.route_node(host.name, host2.name)
+                    encap = f"ip -6 route add {entry_finder(name=host2.name, entries=self.pyhosts.entries)[0].address[:-1]}/64 encap seg6 mode encap segs {','.join([entry_finder(name=item, entries=self.pyhosts.entries)[0].address for item in path[1:-1]])[:-1]}100 dev {path[1]}-{host.name}" #if len(path) > 2 else ""
+                    decap = f"ip -6 route add {entry_finder(name=path[0], entries=self.pyhosts.entries)[0].address[:-1]}100 encap seg6local action End.DT6 dev {path[-2]}-{path[-1]} table default"
 
                     with open(SRLOGFILE, "a") as f:
                         f.write(f"\nRouting from {host.name} to {host2.name} via {path}\n")
                         f.write(f"Segment Encap Command: {encap}\n")
-                        #f.write(f"Segment Decap Command: {decap}\n")
+                        f.write(f"Segment Decap Command: {decap}\n")
                     print(host.intfs, file=open("srLog.txt", "a"))
-                    host.cmd(encap)
-                    #host2.cmd(decap)
+                    self.net.getNodeByName(path[1]).cmd("ip route flush table default")
+                    self.net.getNodeByName(path[1]).cmd(encap)
+                    self.net.getNodeByName(path[-2]).cmd("ip route flush table default")
+                    self.net.getNodeByName(path[-2]).cmd(decap)
+
+    def route_route(self, host1, host2):
+        """
+        This function is used to route a specific packet from host1 to host2 through the Segment Routing network.
+        It uses the Dijkstra shortest path algorithm to find the best path between two hosts.
+        It also updates the routing table on each host with the new Segment Routing entries.
+
+        Parameters:
+        host1 (Host): The source host of the packet.
+        host2 (Host): The destination host of the packet.
+
+        Returns:
+        None
+        """
+        self.check_weighted(host1)
+        def single_route(host1, host2):
+            path = self.route_node(host1.name, host2.name)
+            encap = f"ip -6 route add {entry_finder(name=host2.name, entries=self.pyhosts.entries)[0].address[:-1]}/64 encap seg6 mode encap segs {','.join([entry_finder(name=item, entries=self.pyhosts.entries)[0].address for item in path[1:-1]])[:-1]}100 dev {path[1]}-{host1}" #if len(path) > 2 else ""
+            decap = f"ip -6 route add {entry_finder(name=path[0], entries=self.pyhosts.entries)[0].address[:-1]}100 encap seg6local action End.DT6 dev {path[-2]}-{path[-1]} table default"
+            with open(SRLOGFILE, "a") as f:
+                f.write(f"\nRouting from {host1.name} to {host2.name} via {path}\n")
+                f.write(f"Segment Encap Command: {encap}\n")
+                f.write(f"Segment Decap Command: {decap}\n")
+            print(host1.intfs, file=open("srLog.txt", "a"))
+            self.net.getNodeByName(path[1]).cmd("ip -6 route flush table default")
+            self.net.getNodeByName(path[1]).cmd(encap)
+            self.net.getNodeByName(path[-2]).cmd("ip -6 route flush table default")
+            self.net.getNodeByName(path[-2]).cmd(decap)
+
+        single_route(host1, host2)
+        single_route(host2, host1)

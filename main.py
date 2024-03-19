@@ -12,7 +12,7 @@ from mininet.node import Host
 from mininet.util import dumpNodeConnections
 from multiprocessing import Process
 from time import sleep
-from segment_route import MetricCollector, SegmentRouter, ETC_HOSTS_FILE
+from segment_route import ETC_HOSTS_FILE
 from tester import TestSuite
 
 
@@ -24,7 +24,22 @@ ADD_ETC_HOSTS = True
 
 
 class BaseNode(Host):
+    """
+    Base class for nodes in the Mininet topology.
+
+    Attributes:
+        dir (str): The directory where the node stores its data.
+        nets (list): A list of networks that the node is a part of.
+    """
     def __init__(self, name, *args, **kwargs):
+        """
+        Initializes the node.
+
+        Args:
+            name (str): The name of the node.
+            *args: Additional arguments.
+            **kwargs: Additional keyword arguments.
+        """
         dirs = [PRIVDIR]
         Host.__init__(self, name, privateDirs=dirs, *args, **kwargs)
         self.dir = f"/tmp/{name}"
@@ -50,45 +65,64 @@ class BaseNode(Host):
             self.cmd(f"ifconfig {intf.name} down")
             self.cmd(f"ifconfig {intf.name} 0")
             self.cmd(f"ifconfig {intf.name} up")
-        
+
         self.cmd(f"echo '{self.name}' > {PRIVDIR}/hostname")
         if os.path.isfile(f"{BASEDIR}{self.name}/start.sh"):
             print("Initializing")
-            print(self.cmd(f"source {BASEDIR}{self.name}/start.sh"))
+            self.cmd(f"source {BASEDIR}{self.name}/start.sh")
         if self.name == "r5" or self.name == "h14":
             self.cmd("sudo wireshark&")
 
     def cleanup(self):
+        """
+        Cleans up the node by removing any temporary files and stopping any
+        services running on the node.
+
+        Returns:
+            None
+        """
         def remove_if_exists(filename):
             if os.path.exists(filename):
                 os.remove(filename)
 
         Host.cleanup(self)
-        # Rm dir
-        if os.path.exists(self.dir):
-            shutil.rmtree(self.dir)
-
-        remove_if_exists(f"{BASEDIR}{self.name}/zebra.pid")
-        remove_if_exists(f"{BASEDIR}{self.name}/zebra.log")
-        remove_if_exists(f"{BASEDIR}{self.name}/zebra.sock")
-        remove_if_exists(f"{BASEDIR}{self.name}/isis8d.pid")
-        remove_if_exists(f"{BASEDIR}{self.name}/isis8d.log")
-        remove_if_exists(f"{BASEDIR}{self.name}/isisd.log")
-        remove_if_exists(f"{BASEDIR}{self.name}/isisd.pid")
-
         remove_if_exists(OUTPUT_PID_TABLE_FILE)
 
 
 class Router(BaseNode):
+    """
+    A router node in the Mininet topology.
+    """
     def __init__(self, name, *args, **kwargs):
+        """
+        Initializes the router node.
+
+        Args:
+            name (str): The name of the router node.
+            *args: Additional arguments.
+            **kwargs: Additional keyword arguments.
+        """
         BaseNode.__init__(self, name, *args, **kwargs)
 
     def config(self, **kwargs):
-        # Init steps
+        """
+        Placeholder for additionally configuring the router node.
+        """
         BaseNode.config(self, **kwargs)
 
 
 def add_link(my_net, node1, node2):
+    """
+    Adds a link between two nodes in the Mininet topology.
+
+    Args:
+        my_net (Mininet): The Mininet instance.
+        node1 (Host): The first node.
+        node2 (Host): The second node.
+
+    Returns:
+        None
+    """
     my_net.addLink(
         node1,
         node2,
@@ -98,29 +132,54 @@ def add_link(my_net, node1, node2):
 
 
 def create_topo(my_net, args):
+    """
+    Creates the Mininet topology based on the specified arguments.
+
+    Args:
+        my_net (Mininet): The Mininet instance.
+        args (argparse.Namespace): The command line arguments.
+
+    Returns:
+        None
+    """
     topo = CustomTopo(args.topo, args.size)
     topo.create_hosts()
     graph = topo.get_topo()
-    
+
     for n in graph.nodes:
         if n[0] == "h":
             my_net.addHost(f"{n}", cls=BaseNode)
     for n in graph.nodes:
         if n[0] == "r":
             my_net.addHost(f"{n}", cls=Router)
-        
+
     for n1, n2 in graph.edges:
         add_link(my_net, f"{n1}", f"{n2}")
 
 
 def add_nodes_to_etc_hosts():
+    """
+    Adds the Mininet nodes to the /etc/hosts file.
+
+    Returns:
+        None
+    """
     etc_hosts = python_hosts.hosts.Hosts()
     count = etc_hosts.import_file(ETC_HOSTS_FILE)
     count = count["add_result"]["ipv6_count"] + count["add_result"]["ipv4_count"]
     print(f"*** Added {count} entries to /etc/hosts\n")
 
 
-def remove_nodes_from_etc_hosts(net):
+def remove_nodes_from_etc_hosts(net: Mininet) -> None:
+    """
+    Removes entries from /etc/hosts for all nodes in the Mininet instance.
+
+    Args:
+        net (Mininet): The Mininet instance.
+
+    Returns:
+        None
+    """
     print("*** Removing entries from /etc/hosts\n")
     etc_hosts = python_hosts.hosts.Hosts()
     for host in net.hosts:
@@ -129,62 +188,87 @@ def remove_nodes_from_etc_hosts(net):
 
 
 def stop_all():
+    """
+    Stops all processes running on the system.
+
+    Args:
+        None
+
+    Returns:
+        None
+
+    """
     os.system("sudo mn -c")
     os.system("sudo killall sshd zebra isisd")
 
 
-def extract_host_pid(dumpline):
+def extract_host_pid(dumpline: str) -> int:
+    """
+    Extracts the process ID from a Mininet host dump line.
+
+    Args:
+        dumpline (str): A Mininet host dump line.
+
+    Returns:
+        int: The process ID of the host.
+
+    """
     temp = dumpline[dumpline.find("pid=") + 4 :]
     return int(temp[: len(temp) - 2])
 
-
-def check_metrics(net):
-    router = SegmentRouter(net)
-    while True:
-        router.route_all()
-        sleep(60)
-
-
-def run_tester(net):
-    sleep(60)
-    tester = TestSuite(net)
-    while True:
-        tester.code_brain()
-        #tester.custom_pinger() 
-
-
 def run_mn(args):
-    "Runs mininet"
+    """
+    Runs mininet
+
+    Args:
+        args (argparse.Namespace): command line arguments
+
+    Returns:
+        None
+    """
+    # Initialize mininet
     net = Mininet(topo=None, build=False, controller=None, autoSetMacs=True)
+
+    # Create topology
     create_topo(net, args)
 
+    # Build and start mininet
     net.build()
     net.start()
     print("Dumping host connections")
+    # Dump node connections
     dumpNodeConnections(net.hosts)
 
+    # Open file to write host and pid pairs
     with open(OUTPUT_PID_TABLE_FILE, "w") as file:
+        # Iterate over hosts and write host and pid pairs
         for host in net.hosts:
             file.write("%s %d\n" % (host, extract_host_pid(repr(host))))
 
+    # Add nodes to /etc/hosts if specified
     if ADD_ETC_HOSTS:
         add_nodes_to_etc_hosts()
-    net.getNodeByName("r5").cmd("ip -6 route")
-    metric_checker = Process(target=check_metrics, args=(net,))
-    cli_runner = Process(target=run_tester, args=(net,))
-    metric_checker.start()
-    cli_runner.start()
-    metric_checker.join()
-    cli_runner.join()
 
+    # Initialize test suite
+    tester = TestSuite(net)
+
+    # Remove nodes from /etc/hosts if specified
     if ADD_ETC_HOSTS:
         remove_nodes_from_etc_hosts(net)
 
+    # Stop mininet
     net.stop()
+    # Stop sshd, zebra, and isisd processes
     stop_all()
 
 
 def parse_arguments():
+    """
+    Parses command line arguments for the Mininet topology.
+
+    Returns:
+        ArgumentParser: The ArgumentParser object with the parsed arguments.
+    """
     parser = ArgumentParser(
         description="Emulation of a Mininet topology for Segment Routing"
     )
@@ -211,6 +295,12 @@ def parse_arguments():
         type=int,
         help="This is the argument to determine the size of your topology.",
     )
+    parser.add_argument(
+        "--debug-mode",
+        default=False,
+        action="store_true",
+        help="Enable debug mode for logging purposes",
+    )
 
     args = parser.parse_args()
     return args
@@ -220,7 +310,7 @@ def __main():
     global ADD_ETC_HOSTS
     args = parse_arguments()
     ADD_ETC_HOSTS = args.add_etc_hosts
-    setLogLevel("debug")
+    setLogLevel("debug") if args.debug_mode else setLogLevel("info")
     run_mn(args)
 
 
