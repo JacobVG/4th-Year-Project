@@ -8,7 +8,8 @@ import python_hosts
 from mininet.cli import CLI
 from mininet.log import setLogLevel
 from mininet.net import Mininet
-from mininet.node import Host
+from mininet.node import Host, OVSSwitch, RemoteController
+from mininet.link import TCLink
 from mininet.util import dumpNodeConnections
 from multiprocessing import Process
 from time import sleep
@@ -19,8 +20,6 @@ from tester import TestSuite
 OUTPUT_PID_TABLE_FILE = "/tmp/pid_table_file.txt"
 
 PRIVDIR = "/var/priv"
-
-ADD_ETC_HOSTS = True
 
 
 class BaseNode(Host):
@@ -70,8 +69,8 @@ class BaseNode(Host):
         if os.path.isfile(f"{BASEDIR}{self.name}/start.sh"):
             print("Initializing")
             self.cmd(f"source {BASEDIR}{self.name}/start.sh")
-        if self.name == "r5" or self.name == "h14":
-            self.cmd("sudo wireshark&")
+        #if self.name == "r5" or self.name == "h14":
+        #    self.cmd("sudo wireshark&")
 
     def cleanup(self):
         """
@@ -157,20 +156,7 @@ def create_topo(my_net, args):
         add_link(my_net, f"{n1}", f"{n2}")
 
 
-def add_nodes_to_etc_hosts():
-    """
-    Adds the Mininet nodes to the /etc/hosts file.
-
-    Returns:
-        None
-    """
-    etc_hosts = python_hosts.hosts.Hosts()
-    count = etc_hosts.import_file(ETC_HOSTS_FILE)
-    count = count["add_result"]["ipv6_count"] + count["add_result"]["ipv4_count"]
-    print(f"*** Added {count} entries to /etc/hosts\n")
-
-
-def remove_nodes_from_etc_hosts(net: Mininet) -> None:
+def remove_nodes_from_etc_hosts(net):
     """
     Removes entries from /etc/hosts for all nodes in the Mininet instance.
 
@@ -227,7 +213,7 @@ def run_mn(args):
         None
     """
     # Initialize mininet
-    net = Mininet(topo=None, build=False, controller=None, autoSetMacs=True)
+    net = Mininet(topo=None, build=False, controller=None, autoSetMacs=True, waitConnected=True)
 
     # Create topology
     create_topo(net, args)
@@ -244,17 +230,8 @@ def run_mn(args):
         # Iterate over hosts and write host and pid pairs
         for host in net.hosts:
             file.write("%s %d\n" % (host, extract_host_pid(repr(host))))
-
-    # Add nodes to /etc/hosts if specified
-    if ADD_ETC_HOSTS:
-        add_nodes_to_etc_hosts()
-
     # Initialize test suite
-    tester = TestSuite(net)
-
-    # Remove nodes from /etc/hosts if specified
-    if ADD_ETC_HOSTS:
-        remove_nodes_from_etc_hosts(net)
+    tester = TestSuite(net, operation_mode="Segment-Routing", args=args)
 
     # Stop mininet
     net.stop()
@@ -271,13 +248,6 @@ def parse_arguments():
     """
     parser = ArgumentParser(
         description="Emulation of a Mininet topology for Segment Routing"
-    )
-    parser.add_argument(
-        "--no-etc-hosts",
-        dest="add_etc_hosts",
-        action="store_false",
-        default=True,
-        help="Define whether to add Mininet nodes to /etc/hosts file or not",
     )
     parser.add_argument(
         "-t",
@@ -306,13 +276,11 @@ def parse_arguments():
     return args
 
 
-def __main():
-    global ADD_ETC_HOSTS
+def main():
     args = parse_arguments()
-    ADD_ETC_HOSTS = args.add_etc_hosts
     setLogLevel("debug") if args.debug_mode else setLogLevel("info")
     run_mn(args)
 
 
 if __name__ == "__main__":
-    __main()
+    main()

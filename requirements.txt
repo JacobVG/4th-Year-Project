@@ -3,3 +3,4 @@ matplotlib
 psutil
 python_hosts
 mininet
+influxdb-client

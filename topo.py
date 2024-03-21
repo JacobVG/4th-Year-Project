@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 import networkx as nx
-import argparse, os, shutil
+import argparse, os, shutil, pickle
 from socket import AF_UNIX
 from python_hosts import Hosts, HostsEntry
 
@@ -27,12 +27,19 @@ class CustomTopo:
         start_node=None,
         end_node=None,
         from_net=False,
+        dump=True,
+        read_dump=False,
     ):
         self.path_edges = []
-        if not from_net:
+        if not from_net and not read_dump:
+            print("Creating topologies...")
             self.topo = topo_name
             self.size = size
             self.create_topologies()
+            if dump:
+                self.dump_topologies()
+        if read_dump:
+            self.read_topologies()
         if start_node and end_node:
             self.route_nodes(start_node, end_node)
         if plot_figure:
@@ -40,6 +47,12 @@ class CustomTopo:
 
     def get_topo(self):
         return self.G
+
+    def dump_topologies(self):
+        pickle.dump(self.G, open(f"working_topology.pickle", "wb"))
+
+    def read_topologies(self):
+        self.G = pickle.load(open(f"working_topology.pickle", "rb"))
 
     def create_from_net(self, net):
         self.G = nx.Graph()
@@ -143,7 +156,7 @@ class CustomTopo:
                     isisd.write(f" ip router isis {counter}\n")
                     isisd.write(" isis hello-interval 5\n")
                     isisd.write("!\n")
-                    isisd.write(f"router isis {counter+1}\n")
+                    isisd.write(f"router isis FOO\n")
                     isisd.write(f" net 49.0001.1111.1111.{node[1:].zfill(4)}.00\n")
                     isisd.write(" is-type level-2-only\n")
                     isisd.write(" metric-style wide\n")
