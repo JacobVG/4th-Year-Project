@@ -170,14 +170,14 @@ class SegmentRouter:
                 #    death_scores[endpoint] = death_scores[endpoint] + (self.metrics_brain.metrics[edge]["bandwidth_usage"][endpoint] % USAGE_LIMIT)
                 #    tx_bw_score = 0
 
-                edge_scores[endpoint] = rx_mem_score + rx_cpu_score + tx_cpu_score + tx_mem_score# + tx_bw_score + rx_bw_score
+                edge_scores[endpoint] = 400 - (rx_mem_score + rx_cpu_score + tx_cpu_score + tx_mem_score) # + tx_bw_score + rx_bw_score
                 if (rx_mem_score > 0 and rx_cpu_score > 0 and tx_mem_score > 0 and tx_cpu_score > 0):# and tx_bw_score > 0 and rx_bw_score > 0):
                     endpoint_feasible = True
             if endpoint_feasible:
                 tmp_weights = {(edge, endpoint): {"weight": edge_scores[endpoint]+1} for endpoint in edges[edge]}
             else:
                 smallest_gap = min(death_scores, key=death_scores.get)
-                tmp_weights = {(edge, endpoint): {"weight": 0} for endpoint in edges[edge]}
+                tmp_weights = {(edge, endpoint): {"weight": 400} for endpoint in edges[edge]}
                 tmp_weights[(edge, smallest_gap)] = {"weight": edge_scores[endpoint]}
 
             weighted_edges.update(tmp_weights)
@@ -199,13 +199,15 @@ class SegmentRouter:
         )
         return path
 
-    def check_weighted(self, host1):
+    def check_weighted(self):
         """
             This function is used to check if the edge weights have been updated.
             If not, it updates the edge weights using the metrics collected from the hosts.
             """
-        if not self.metrics_brain.metrics[host1.name]:
-            self.metrics_brain.collect_all_usage()
+        while not os.path.exists("tmp/metrics.json"):
+            sleep(1)
+        with open("tmp/metrics.json", "r") as f:
+            self.metrics_brain.metrics = json.loads(f.read())
         self.find_weight()
 
     def route_all(self):
@@ -238,7 +240,6 @@ class SegmentRouter:
 
     def get_sids(self, path):
         sids = []
-        print(path)
         for index in range(len(path[1:])):
             if "r" in path[index+1] and "r" in path[index]:
                 if int(path[index+1][1:]) > int(path[index][1:]):
@@ -264,7 +265,7 @@ class SegmentRouter:
         Returns:
         None
         """
-        self.check_weighted(host1)
+        self.check_weighted()
         def single_route(host1, host2, initial_route=False):
             path = self.route_node(host1.name, host2.name)
             encap = f"ip -6 route add {entry_finder(name=host2.name, entries=self.pyhosts.entries)[0].address[:-1]}/64 encap seg6 mode encap segs {','.join(self.get_sids(path[:-1]))} dev {path[1]}-{host1.name}" if len(path) > 2 else ""

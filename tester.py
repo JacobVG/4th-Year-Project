@@ -5,8 +5,9 @@ from time import sleep
 from segment_route import MetricCollector, SegmentRouter
 from multiprocessing import Process, Manager, Value, Lock
 from db_dump import dump_to_Influx
+import os, json
 
-
+NUM_ITERATIONS = 5
 class TestSuite:
     """
     This class is used to test the Segment Routing network.
@@ -20,6 +21,7 @@ class TestSuite:
             net (Mininet): The Mininet network object.
         """
         self.manager = Manager()  # The Multiprocessing Manager object
+        os.makedirs("tmp", exist_ok=True)  # Creates the tmp directory if it does not already
         self.lock = Lock()
         self.net = net  # The Mininet network object
         self.topo = args.topo  # The topology of the network
@@ -42,22 +44,27 @@ class TestSuite:
         This function is used to check the metrics in the Multiprocessing.
         """
         counter = 0
-        while counter < 5:
+        while counter < NUM_ITERATIONS:
             self.metrics_brain.collect_all_usage()  # Collects the metrics
+            with open("tmp/metrics.json", "w") as f:
+                f.write(json.dumps(self.metrics_brain.metrics))  # Dumps the metrics to a file
             print(self.metrics_brain.metrics)  # Prints the metrics
             dump_to_Influx(operation_mode=self.operation_mode, dataset=self.metrics_brain.metrics, topo=self.topo, size=self.size)  # Dumps the metrics to InfluxDB
             counter +=1
             sleep(60)
         done_flag.value = True
+        with open("pinger.pid", "r") as f:
+            os.kill(int(f.read()), 9)  # Kills the pinger process
 
     def run_tester(self, done_flag):
         """
         This function is used to run the tester in the Multiprocessing.
         """
+        with open("pinger.pid", "w") as f:
+            f.write(str(os.getpid()))
         sleep(60)
 
         while not done_flag.value:
-            print(done_flag.value)
             self.custom_pinger()  # Runs the custom pinger
 
     def ping_all(self):
@@ -74,7 +81,8 @@ class TestSuite:
         for host in self.net.hosts:
             for host2 in self.net.hosts:
                 if host2!= host and "r" not in host.name and "r" not in host2.name:
-                    self.router.route_route(host, host2)  # Routes the packets through the SegmentRouter
+                    if self.operation_mode == "Segment-Routing":
+                        self.router.route_route(host, host2)  # Routes the packets through the SegmentRouter
                     host.cmd(f"ping6 -c 1 -w 1000 -v {entry_finder(name=host2.name, entries=self.pyhosts.entries)[0].address}")  # Pings the other host
 
     def code_brain(self):

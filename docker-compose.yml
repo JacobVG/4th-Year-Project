@@ -5,7 +5,7 @@ services:
     ports:
       - '8086:8086'
     volumes:
-      - ./influxdb-storage:/var/lib/influxdb
+      - ./influxdb-storage:/var/lib/influxdb2
     environment:
       - INFLUXDB_DB=srv6
       - INFLUXDB_ADMIN_USER=admin

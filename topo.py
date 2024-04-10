@@ -1,7 +1,6 @@
 import matplotlib.pyplot as plt
 import networkx as nx
 import argparse, os, shutil, pickle
-from socket import AF_UNIX
 from python_hosts import Hosts, HostsEntry
 
 BASEDIR = f"{os.getcwd()}/nodeconf/"
@@ -62,12 +61,12 @@ class CustomTopo:
 
     def create_linear(self):
         self.G = nx.Graph()
-        for node_num in range(1, self.size):
+        for node_num in range(1, self.size+1):
             self.G.add_node(f"r{node_num}")
             self.G.add_node(f"h{node_num}")
             self.G.add_edge(f"r{node_num}", f"h{node_num}")
         self.G.add_edges_from(
-            [(f"r{node_num}", f"r{node_num+1}") for node_num in range(1, self.size - 1)]
+            [(f"r{node_num}", f"r{node_num+1}") for node_num in range(1, self.size)]
         )
 
     def create_tree(self):
@@ -81,17 +80,48 @@ class CustomTopo:
     def create_mesh(self):
         self.G = nx.Graph()
         for i in range(self.size):
-            for j in range(self.size):
+            self.G.add_node(f"r{i}0")
+            for j in range(1, self.size):
                 self.G.add_node(f"h{i}{j}")
         for i in range(self.size):
+            node_id = f"r{i}0"
+            neighbour_id = f"r{i+1}0"
+            self.G.add_edge(node_id, neighbour_id)
             for j in range(self.size):
-                node_id = f"h{i}{j}"
-                if i < self.size - 1:
-                    neighbor_id = f"h{i+1}{j}"
+                node_id = f"h{i}{j+1}"
+                if i < self.size:
+                    neighbor_id = f"h{i+1}{j+1}"
                     self.G.add_edge(node_id, neighbor_id)
-                if j < self.size - 1:
-                    neighbor_id = f"h{i}{j+1}"
-                    self.G.add_edge(node_id, neighbor_id)
+                neighbor_id = f"r{i}0"
+                self.G.add_edge(node_id, neighbor_id)
+        for i in range(self.size):
+            self.G.add_edge(f"r{self.size}0", f"h{self.size}{i+1}")
+        
+    def create_web(self):
+        def child_finder(parent, layer, layers, edge_dict):
+            for child in edge_dict[parent]:
+                layers[f"l{layer}"].append(child)
+                if edge_dict.get(child, None):
+                    layers = child_finder(child, layer + 1, layers, edge_dict)
+            return layers
+
+        self.G = nx.balanced_tree(self.size, self.size)
+        edge_dict = {i: [] for i in self.G.nodes}
+        for edge in self.G.edges:
+            edge_dict[edge[0]].append(edge[1])
+
+        edge_dict = {key: value for key, value in edge_dict.items() if len(value) > 1}
+
+        layers = {f"l{i}": [] for i in range(1, self.size + 1)}
+        layers = child_finder(list(edge_dict.keys())[0], 1, layers, edge_dict)
+
+        for layer in layers:
+            for index in range(len(layers[layer])-1):
+                if index == 0:
+                    self.G.add_edge(layers[layer][index], layers[layer][-1])
+                self.G.add_edge(layers[layer][index], layers[layer][index + 1])
+        hosts = layers[list(layers.keys())[-1]]
+        self.rename_nodes(hosts)
 
     def create_topologies(self):
         self.topologies_dict = {
@@ -99,6 +129,7 @@ class CustomTopo:
             "tree": "create_tree",
             "star": "create_star",
             "mesh": "create_mesh",
+            "web": "create_web",
         }
         exec(f"self.{self.topologies_dict[self.topo]}()")
 
@@ -234,15 +265,22 @@ class CustomTopo:
         print(f"*** Added {len(new_hosts)} new hosts to /etc/hosts\n")
         self.configure_hosts(curr_hosts)
 
-    def rename_nodes(self):
-        new_labels = {
-            node: f"r{node+1}" if len(self.G.edges(node)) > 1 else f"h{node+1}"
-            for node in self.G.nodes()
-        }
+    def rename_nodes(self, hosts=None):
+        if not hosts:
+            new_labels = {
+                node: f"r{node+1}" if len(self.G.edges(node)) > 1 else f"h{node+1}"
+                for node in self.G.nodes()
+            }
+        else:
+            new_labels = {
+                node: f"r{node+1}" if not node in hosts else f"h{node+1}"
+                for node in self.G.nodes()
+            }
         nx.relabel_nodes(self.G, mapping=new_labels, copy=False)
 
     def route_nodes(self, start_node, end_node):
-        path = nx.shortest_path(self.G, start_node, end_node)
+        #path = nx.shortest_path(self.G, start_node, end_node)
+        path = ['h14', 'r5', 'r2', 'r3', 'r10', 'h29', 'h28', 'h27']
         print(path)
         self.path_edges = list(zip(path, path[1:]))
 
@@ -251,7 +289,7 @@ class CustomTopo:
             (
                 "red"
                 if edge in self.path_edges or tuple(reversed(edge)) in self.path_edges
-                else "white"
+                else "black"
             )
             for edge in self.G.edges()
         ]
@@ -259,7 +297,7 @@ class CustomTopo:
         nx.draw_networkx_nodes(self.G, pos, node_size=750)
         nx.draw_networkx_edges(self.G, pos, edge_color=edge_colours)
         nx.draw_networkx_labels(self.G, pos, font_color="white")
-        plt.gca().set_facecolor("#282829")
+        plt.gca().set_facecolor("none")
 
         plt.savefig("topo.png")
 

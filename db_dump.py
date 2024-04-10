@@ -2,7 +2,7 @@ import influxdb_client, os, time
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
 
-TOKEN = "F4zRspwXci5PlMgswkhT2eDy-hNfxVHzFtFRlNjx0F4EKz95BfhC-2BQadv-S7ZdlwwfbhTFs8gWI_6IjHS01Q=="
+TOKEN = "Kr5Mgbzd3tF86WWobM74A-O81olOwY765VZzGQGUQ-v9_YitR7-_lWa8-Ft0ZgAWqvPaYLwjcRrDWLeHjQMBJg=="
 ORG = "srv6"
 URL = "http://localhost:8086"
 

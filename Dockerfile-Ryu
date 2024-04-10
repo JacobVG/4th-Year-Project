@@ -1,0 +1,16 @@
+FROM python:3.8
+RUN apt-get update && apt-get install -y locales && rm -rf /var/lib/apt/lists/* \
+    && localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
+ENV LANG en_US.utf8
+
+RUN apt-get update && apt-get install git gcc -y
+RUN pip install ryu && \
+    git clone https://github.com/faucetsdn/ryu.git
+
+WORKDIR /ryu/
+RUN pip install . 
+RUN python setup.py install
+
+WORKDIR /ryu/ryu/app/
+
+CMD ["ryu-manager", "--verbose", "simple_switch_13.py"]
