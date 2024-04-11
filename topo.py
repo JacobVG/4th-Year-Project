@@ -279,8 +279,7 @@ class CustomTopo:
         nx.relabel_nodes(self.G, mapping=new_labels, copy=False)
 
     def route_nodes(self, start_node, end_node):
-        #path = nx.shortest_path(self.G, start_node, end_node)
-        path = ['h14', 'r5', 'r2', 'r3', 'r10', 'h29', 'h28', 'h27']
+        path = nx.shortest_path(self.G, start_node, end_node)
         print(path)
         self.path_edges = list(zip(path, path[1:]))
 
